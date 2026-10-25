@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # Optional bearer token for the HTTP transports (MCP over HTTP and REST)
     api_token: str | None = None
 
+    # External data tools (optional — the tools report clearly when a key is missing)
+    tavily_api_key: str | None = Field(None, description="Web search: https://app.tavily.com")
+    fmp_api_key: str | None = Field(None, description="Market data: https://site.financialmodelingprep.com")
+    external_timeout_s: float = 15.0
+    market_data_cache_s: int = Field(600, description="Cache FMP responses (free plan: 250 calls/day)")
+
     def resolve(self, provider: Provider) -> Literal["azure", "openai", "local"]:
         if provider != "auto":
             return provider

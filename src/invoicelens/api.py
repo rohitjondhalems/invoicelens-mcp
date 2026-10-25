@@ -6,6 +6,8 @@ REST API + MCP in one process.
       POST /search      JSON {query, k, ...}             -> SearchResult
       POST /extract     multipart file, or form doc_id   -> ExtractResult
       GET  /documents                                    -> [DocumentInfo]
+      GET  /company-financials?company=MSFT              -> CompanyFinancials (FMP)
+      POST /web-search  JSON {query, topic, ...}         -> WebSearchResult (Tavily)
       GET  /health
       POST /mcp         the MCP endpoint (Streamable HTTP) — same tools as stdio
       GET  /docs        Swagger UI
@@ -25,8 +27,10 @@ from pydantic import BaseModel, Field
 from invoicelens import __version__
 from invoicelens.auth import BearerAuthMiddleware
 from invoicelens.mcp_server import build_server
-from invoicelens.models import DocumentInfo, ExtractResult, IngestResult, SearchResult
-from invoicelens.service import InputError, InvoiceLensService, PDFError, StoreError
+from invoicelens.models import (CompanyFinancials, DocumentInfo, ExtractResult, IngestResult,
+                                SearchResult, WebSearchResult)
+from invoicelens.service import (ExternalDataError, InputError, InvoiceLensService, PDFError,
+                                 StoreError)
 
 
 class SearchRequest(BaseModel):
@@ -35,6 +39,14 @@ class SearchRequest(BaseModel):
     doc_id: str | None = None
     chunk_types: list[Literal["header", "table", "totals", "text"]] | None = None
     collection: str | None = None
+
+
+class WebSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=400, examples=["Microsoft cloud revenue growth"])
+    topic: Literal["general", "news", "finance"] = "general"
+    time_range: Literal["day", "week", "month", "year"] | None = None
+    max_results: int = Field(5, ge=1, le=10)
+    include_domains: list[str] | None = None
 
 
 def create_app(service: InvoiceLensService | None = None, host: str = "127.0.0.1") -> FastAPI:
@@ -62,6 +74,8 @@ def create_app(service: InvoiceLensService | None = None, host: str = "127.0.0.1
             raise HTTPException(422, str(e)) from e
         except StoreError as e:
             raise HTTPException(404 if "No document" in str(e) else 409, str(e)) from e
+        except ExternalDataError as e:
+            raise HTTPException(502, str(e)) from e
 
     async def read_upload(file: UploadFile) -> bytes:
         data = await file.read(service.settings.max_pdf_bytes + 1)
@@ -103,6 +117,17 @@ def create_app(service: InvoiceLensService | None = None, host: str = "127.0.0.1
     @app.get("/documents", response_model=list[DocumentInfo], tags=["ingestion"])
     def documents(collection: str | None = None):
         return call(service.list_documents, collection)
+
+    @app.get("/company-financials", response_model=CompanyFinancials, tags=["market data"])
+    def company_financials(company: str, include_growth: bool = True):
+        """Share price, market cap and growth for a listed company (Financial Modeling Prep)."""
+        return call(service.company_financials, company, include_growth=include_growth)
+
+    @app.post("/web-search", response_model=WebSearchResult, tags=["market data"])
+    def web_search(req: WebSearchRequest):
+        """Web search with source URLs (Tavily)."""
+        return call(service.web_search, req.query, topic=req.topic, time_range=req.time_range,
+                    max_results=req.max_results, include_domains=req.include_domains)
 
     app.mount("/", mcp_app)                   # serves /mcp; registered last so API routes win
     app.add_middleware(BearerAuthMiddleware, token=service.settings.api_token)

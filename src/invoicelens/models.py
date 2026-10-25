@@ -74,6 +74,58 @@ class ExtractResult(BaseModel):
     filename: str | None = None
 
 
+class WebSearchItem(BaseModel):
+    title: str
+    url: str
+    content: str = Field(description="Relevant snippet from the page")
+    score: float | None = None
+    published_date: str | None = None
+
+
+class WebSearchResult(BaseModel):
+    query: str
+    topic: str
+    provider: str
+    retrieved_at: str
+    answer: str | None = Field(None, description="Provider's short summary, when requested")
+    results: list[WebSearchItem]
+
+
+class GrowthPeriod(BaseModel):
+    fiscal_year: str | None = None
+    period_end: str | None = None
+    revenue_growth: float | None = Field(None, description="Year-over-year, as a fraction: 0.12 = +12%")
+    net_income_growth: float | None = None
+    eps_growth: float | None = None
+
+
+class CompanyFinancials(BaseModel):
+    query: str
+    symbol: str
+    resolved_by: str = Field(description="'ticker' if given directly, else 'name search' — confirm the match")
+    name: str | None = None
+    exchange: str | None = None
+    currency: str | None = None
+    price: float | None = None
+    change_percent: float | None = Field(None, description="Today's price change, percent")
+    market_cap: float | None = Field(None, description="In `currency`")
+    beta: float | None = None
+    sector: str | None = None
+    industry: str | None = None
+    country: str | None = None
+    ceo: str | None = None
+    website: str | None = None
+    employees: int | None = None
+    ipo_date: str | None = None
+    is_actively_trading: bool | None = None
+    description: str | None = None
+    growth: list[GrowthPeriod] = Field(default_factory=list, description="Most recent fiscal years first")
+    notes: list[str] = Field(default_factory=list)
+    provider: str
+    retrieved_at: str
+    disclaimer: str = "Market data for information only; not investment advice. Prices may be delayed."
+
+
 class DocumentInfo(BaseModel):
     doc_id: str
     filename: str

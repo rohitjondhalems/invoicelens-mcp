@@ -15,9 +15,10 @@ from pathlib import Path
 from invoicelens.chunking import HybridChunker
 from invoicelens.config import Settings, get_settings
 from invoicelens.embeddings import Embedder, make_embedder
+from invoicelens.external import ExternalDataError, FMPFinancials, TavilySearch
 from invoicelens.extraction import Extractor, make_extractor
-from invoicelens.models import (DocumentInfo, ExtractResult, IngestResult, SearchResult,
-                                SearchResultItem)
+from invoicelens.models import (CompanyFinancials, DocumentInfo, ExtractResult, IngestResult,
+                                SearchResult, SearchResultItem, WebSearchResult)
 from invoicelens.parsing import PDFError, parse_pdf
 from invoicelens.store import StoreError, VectorStore, validate_collection
 from invoicelens.validation import validate_invoice
@@ -34,10 +35,15 @@ def doc_id_for(pdf_bytes: bytes) -> str:
 
 class InvoiceLensService:
     def __init__(self, settings: Settings | None = None,
-                 embedder: Embedder | None = None, extractor: Extractor | None = None):
+                 embedder: Embedder | None = None, extractor: Extractor | None = None,
+                 web: TavilySearch | None = None, market: FMPFinancials | None = None):
         self.settings = settings or get_settings()
         self.embedder = embedder or make_embedder(self.settings)
         self.extractor = extractor or make_extractor(self.settings)
+        s = self.settings
+        self.web = web or TavilySearch(s.tavily_api_key, timeout=s.external_timeout_s)
+        self.market = market or FMPFinancials(s.fmp_api_key, timeout=s.external_timeout_s,
+                                              cache_seconds=s.market_data_cache_s)
         self.chunker = HybridChunker(self.settings.chunk_max_tokens, self.settings.chunk_overlap_tokens)
         self._stores: dict[str, VectorStore] = {}
         self._lock = threading.Lock()
@@ -140,4 +146,19 @@ class InvoiceLensService:
                              doc_id=doc_id or doc_id_for(pdf_bytes), filename=filename)
 
 
-__all__ = ["InvoiceLensService", "InputError", "PDFError", "StoreError", "doc_id_for"]
+    # ── external data ───────────────────────────────────────────────────
+    def web_search(self, query: str, topic: str = "general", time_range: str | None = None,
+                   max_results: int = 5, include_domains: list[str] | None = None,
+                   include_answer: bool = False) -> WebSearchResult:
+        if not query.strip():
+            raise InputError("query is empty.")
+        return self.web.search(query, topic=topic, time_range=time_range, max_results=max_results,
+                               include_domains=include_domains, include_answer=include_answer)
+
+    def company_financials(self, company: str, include_growth: bool = True) -> CompanyFinancials:
+        if not company.strip():
+            raise InputError("company is empty: pass a name ('Microsoft') or a ticker ('MSFT').")
+        return self.market.company(company, include_growth=include_growth)
+
+
+__all__ = ["InvoiceLensService", "InputError", "PDFError", "StoreError", "ExternalDataError", "doc_id_for"]

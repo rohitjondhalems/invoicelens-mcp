@@ -31,13 +31,16 @@ from langgraph.prebuilt import ToolNode
 
 EXTRACT_TOOL = "invoicelens_extract_invoice"
 
-SYSTEM_PROMPT = """You answer questions about invoices using the InvoiceLens tools.
+SYSTEM_PROMPT = """You answer questions about invoices and their vendors using the InvoiceLens tools.
 - To find which invoice answers a question, use invoicelens_search_documents.
 - For exact amounts, dates or line items, call invoicelens_extract_invoice with the doc_id;
   don't read numbers off search snippets.
 - To add a new PDF, use invoicelens_ingest_document.
-- Cite filename and page for every fact. If a tool reports a validation failure, follow
-  the validator's instructions. Never adjust numbers yourself."""
+- For a company's share price, market cap or growth, use invoicelens_company_financials;
+  for news and context, invoicelens_web_search. Never take numbers from web snippets.
+- Cite filename and page for invoice facts, and source + retrieval time for market data
+  (it is information, not investment advice). If a tool reports a validation failure,
+  follow the validator's instructions. Never adjust numbers yourself."""
 
 
 class AgentState(MessagesState):

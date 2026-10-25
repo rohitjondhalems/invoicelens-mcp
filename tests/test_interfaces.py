@@ -23,11 +23,12 @@ async def call(server, tool, args):
         return await c.call_tool(tool, args)
 
 
-async def test_mcp_lists_three_tools_with_schemas(service):
+async def test_mcp_lists_five_tools_with_schemas(service):
     async with create_connected_server_and_client_session(build_server(service)._mcp_server) as c:
         tools = {t.name: t for t in (await c.list_tools()).tools}
     assert set(tools) == {"invoicelens_ingest_document", "invoicelens_search_documents",
-                          "invoicelens_extract_invoice"}
+                          "invoicelens_extract_invoice", "invoicelens_company_financials",
+                          "invoicelens_web_search"}
     assert all(t.outputSchema for t in tools.values())
     assert tools["invoicelens_search_documents"].annotations.readOnlyHint is True
     assert tools["invoicelens_ingest_document"].annotations.readOnlyHint is False

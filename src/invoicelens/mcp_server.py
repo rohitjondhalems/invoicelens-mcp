@@ -19,18 +19,23 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from invoicelens.models import ExtractResult, IngestResult, SearchResult
-from invoicelens.service import InputError, InvoiceLensService, PDFError, StoreError
+from invoicelens.models import (CompanyFinancials, ExtractResult, IngestResult, SearchResult,
+                                WebSearchResult)
+from invoicelens.service import (ExternalDataError, InputError, InvoiceLensService, PDFError,
+                                 StoreError)
 
-INSTRUCTIONS = """InvoiceLens works with invoice PDFs.
+INSTRUCTIONS = """InvoiceLens works with invoice PDFs, plus vendor research on the web.
 - invoicelens_ingest_document: index a PDF so it becomes searchable. Returns a doc_id.
 - invoicelens_search_documents: find relevant passages across ingested PDFs (semantic search).
   Use it to locate which document answers a question, then cite filename and page.
 - invoicelens_extract_invoice: read ONE invoice into structured fields, with arithmetic checks.
   Pass a doc_id from search/ingest, or a PDF directly.
+- invoicelens_company_financials: share price, market cap, sector and annual growth for a
+  listed company (by name or ticker). Use this for numbers, not web search.
+- invoicelens_web_search: current web results (news, growth, strategy) with source URLs.
 If extraction returns validation.valid = false, call it again with `feedback` set to the
 validation errors. If it still fails, report the discrepancy instead of guessing numbers:
-some invoices really are wrong."""
+some invoices really are wrong. Always state the source and retrieval date of market data."""
 
 PdfBase64 = Annotated[str | None, Field(description="The PDF file content, base64-encoded. Use this when the server is remote.")]
 PdfPath = Annotated[str | None, Field(description="Path to a PDF on the server's filesystem (local/stdio use only).")]
@@ -52,7 +57,7 @@ def build_server(service: InvoiceLensService | None = None, host: str = "127.0.0
     def run(fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except (InputError, PDFError, StoreError) as e:
+        except (InputError, PDFError, StoreError, ExternalDataError) as e:
             raise ToolError(str(e)) from e
 
     @mcp.tool(
@@ -119,6 +124,43 @@ def build_server(service: InvoiceLensService | None = None, host: str = "127.0.0
             return run(s.extract, doc_id=doc_id, collection=collection, feedback=feedback)
         data, name = run(s.load_pdf, pdf_base64=pdf_base64, path=path)
         return run(s.extract, pdf_bytes=data, feedback=feedback, filename=name)
+
+    @mcp.tool(
+        name="invoicelens_company_financials",
+        annotations=ToolAnnotations(title="Company market data", readOnlyHint=True,
+                                    destructiveHint=False, idempotentHint=True, openWorldHint=True),
+    )
+    def company_financials(
+        company: Annotated[str, Field(description="Company name ('Microsoft') or ticker ('MSFT'). For non-US companies, a US/ADR ticker works best ('INFY' for Infosys).", min_length=1, max_length=120)],
+        include_growth: Annotated[bool, Field(description="Also fetch up to 3 years of revenue, net income and EPS growth.")] = True,
+    ) -> CompanyFinancials:
+        """Share price, market capitalisation, sector/industry, CEO, employees and annual growth
+        (revenue, net income, EPS; fractions, 0.12 = +12%) for a publicly listed company, from
+        Financial Modeling Prep.
+
+        Check `resolved_by`: if it was found by name search, confirm `name` matches what was
+        meant. Private companies aren't covered. Quote `retrieved_at` with the numbers; prices may
+        be delayed. For context or news, use invoicelens_web_search."""
+        return run(svc().company_financials, company, include_growth=include_growth)
+
+    @mcp.tool(
+        name="invoicelens_web_search",
+        annotations=ToolAnnotations(title="Web search", readOnlyHint=True,
+                                    destructiveHint=False, idempotentHint=False, openWorldHint=True),
+    )
+    def web_search(
+        query: Annotated[str, Field(description="Search query, e.g. 'Microsoft cloud revenue growth 2026'.", min_length=1, max_length=400)],
+        topic: Annotated[Literal["general", "news", "finance"], Field(description="'news' for recent events, 'finance' for markets and companies.")] = "general",
+        time_range: Annotated[Literal["day", "week", "month", "year"] | None, Field(description="Only results from this recent period.")] = None,
+        max_results: Annotated[int, Field(ge=1, le=10)] = 5,
+        include_domains: Annotated[list[str] | None, Field(description="Restrict to sites, e.g. ['reuters.com', 'sec.gov'].", max_length=20)] = None,
+    ) -> WebSearchResult:
+        """Search the web (Tavily) and return ranked results with title, URL, snippet and
+        publication date. Use for recent news, growth narrative and strategy; cite the URLs.
+        Don't take share prices or market caps from snippets — use
+        invoicelens_company_financials for numbers."""
+        return run(svc().web_search, query, topic=topic, time_range=time_range,
+                   max_results=max_results, include_domains=include_domains)
 
     return mcp
 
