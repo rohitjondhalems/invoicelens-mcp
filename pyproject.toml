@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invoicelens-mcp"
+version = "0.1.0"
+description = "MCP server for invoice PDFs: hybrid-chunked ingestion into FAISS, semantic search, and validated structured extraction."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Rohit Jondhale" }]
+dependencies = [
+    # MCP SDK 1.x on purpose: langchain-mcp-adapters (the LangGraph bridge)
+    # does not support mcp 2.x yet. See README "Version notes".
+    "mcp[cli]>=1.30,<2",
+    "faiss-cpu>=1.8",
+    "numpy>=1.26",
+    "pdfplumber>=0.11",
+    "openai>=1.40",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+agent = [
+    "langgraph>=1.0",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-openai>=1.0",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "reportlab>=4",
+]
+
+[project.scripts]
+invoicelens-mcp = "invoicelens.mcp_server:main"
+invoicelens-serve = "invoicelens.api:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+asyncio_mode = "auto"
